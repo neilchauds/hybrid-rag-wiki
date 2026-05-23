@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hybrid RAG Wiki Graph MVP</title>
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --panel: #fff9f1;
+      --panel-2: #efe6d8;
+      --text: #1d1b18;
+      --muted: #6b665d;
+      --accent: #006d77;
+      --accent-2: #e29578;
+      --border: #d7ccb9;
+      --danger: #b23a48;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 20% 10%, #fff5e6 0%, transparent 35%),
+        radial-gradient(circle at 80% 90%, #e5f4f1 0%, transparent 35%),
+        var(--bg);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 300px 1fr 360px;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    h1 {
+      margin: 0 0 8px 0;
+      font-size: 18px;
+      letter-spacing: 0.2px;
+    }
+
+    .sub {
+      margin: 0 0 10px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .btn {
+      border: 0;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .btn.secondary {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .stack { display: flex; flex-direction: column; gap: 8px; }
+
+    .metrics {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .metric {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px;
+    }
+
+    .metric .k { font-size: 12px; color: var(--muted); }
+    .metric .v { font-size: 20px; font-weight: 700; }
+
+    #graph-wrap {
+      position: relative;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    #graph {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background:
+        linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px) 0 0 / 32px 32px,
+        linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px) 0 0 / 32px 32px,
+        #fff;
+    }
+
+    #search {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 14px;
+      background: #fff;
+    }
+
+    .list {
+      margin-top: 8px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      flex: 1;
+    }
+
+    .list button {
+      width: 100%;
+      text-align: left;
+      border: 0;
+      background: transparent;
+      padding: 8px 10px;
+      border-bottom: 1px solid #f1ece2;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .list button:hover { background: #f9f4ec; }
+
+    .note {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      overflow: auto;
+      white-space: pre-wrap;
+      line-height: 1.4;
+      flex: 1;
+    }
+
+    .danger { color: var(--danger); font-weight: 600; }
+
+    .legend {
+      position: absolute;
+      right: 10px;
+      bottom: 10px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    @media (max-width: 1100px) {
+      .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; height: auto; min-height: 100vh; }
+      body { overflow: auto; }
+      #graph-wrap { height: 60vh; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <section class="panel">
+      <h1>Vault Import</h1>
+      <p class="sub">Upload markdown files to build your graph.</p>
+      <div class="stack">
+        <input id="file-input" type="file" multiple accept=".md,text/markdown" />
+        <button id="import-btn" class="btn">Import Markdown Files</button>
+        <button id="refresh-btn" class="btn secondary">Refresh Graph</button>
+      </div>
+      <p id="import-status" class="sub">No import yet.</p>
+      <div class="metrics" id="metrics"></div>
+      <p id="diag" class="sub"></p>
+    </section>
+
+    <section class="panel" style="padding: 0;">
+      <div id="graph-wrap" style="height: 100%;">
+        <canvas id="graph"></canvas>
+        <div class="legend">Scroll: zoom | Drag background: pan | Click node: inspect</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h1>Node Inspector</h1>
+      <input id="search" placeholder="Search docs..." />
+      <div class="list" id="search-results"></div>
+      <p class="sub" id="selected-meta">No node selected.</p>
+      <pre class="note" id="note-preview">Select a node to preview markdown.</pre>
+    </section>
+  </div>
+
+  <script>
+    const state = {
+      nodes: [],
+      edges: [],
+      metrics: null,
+      selectedId: null,
+      transform: { x: 0, y: 0, scale: 1 },
+      simulation: { running: false },
+      searchResults: [],
+    };
+
+    const canvas = document.getElementById("graph");
+    const ctx = canvas.getContext("2d");
+
+    function resizeCanvas() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width * window.devicePixelRatio;
+      canvas.height = rect.height * window.devicePixelRatio;
+      canvas.style.width = rect.width + "px";
+      canvas.style.height = rect.height + "px";
+      ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+      draw();
+    }
+
+    function randomPos(w, h) {
+      return {
+        x: (Math.random() - 0.5) * w * 0.7,
+        y: (Math.random() - 0.5) * h * 0.7,
+      };
+    }
+
+    function runForceLayout(iterations = 300) {
+      const nodes = state.nodes;
+      const edges = state.edges;
+      if (!nodes.length) return;
+
+      const index = new Map(nodes.map(n => [n.id, n]));
+      const width = canvas.clientWidth || 800;
+      const height = canvas.clientHeight || 600;
+
+      for (let i = 0; i < nodes.length; i++) {
+        if (typeof nodes[i].x !== "number") {
+          const p = randomPos(width, height);
+          nodes[i].x = p.x;
+          nodes[i].y = p.y;
+          nodes[i].vx = 0;
+          nodes[i].vy = 0;
+        }
+      }
+
+      const kRepel = 7000;
+      const kSpring = 0.02;
+      const springLen = 120;
+      const damping = 0.86;
+
+      for (let step = 0; step < iterations; step++) {
+        for (let i = 0; i < nodes.length; i++) {
+          const a = nodes[i];
+          for (let j = i + 1; j < nodes.length; j++) {
+            const b = nodes[j];
+            let dx = a.x - b.x;
+            let dy = a.y - b.y;
+            const dist2 = dx * dx + dy * dy + 0.01;
+            const dist = Math.sqrt(dist2);
+            const force = kRepel / dist2;
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            a.vx += fx;
+            a.vy += fy;
+            b.vx -= fx;
+            b.vy -= fy;
+          }
+        }
+
+        for (const edge of edges) {
+          if (edge.target_document_id == null) continue;
+          const a = index.get(edge.source_document_id);
+          const b = index.get(edge.target_document_id);
+          if (!a || !b) continue;
+
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) + 0.001;
+          const stretch = dist - springLen;
+          const fx = (dx / dist) * stretch * kSpring;
+          const fy = (dy / dist) * stretch * kSpring;
+          a.vx += fx;
+          a.vy += fy;
+          b.vx -= fx;
+          b.vy -= fy;
+        }
+
+        for (const n of nodes) {
+          n.vx *= damping;
+          n.vy *= damping;
+          n.x += n.vx * 0.02;
+          n.y += n.vy * 0.02;
+        }
+      }
+    }
+
+    function worldToScreen(x, y) {
+      return {
+        x: x * state.transform.scale + state.transform.x,
+        y: y * state.transform.scale + state.transform.y,
+      };
+    }
+
+    function screenToWorld(x, y) {
+      return {
+        x: (x - state.transform.x) / state.transform.scale,
+        y: (y - state.transform.y) / state.transform.scale,
+      };
+    }
+
+    function nodeRadius(node) {
+      const degree = node.degree || 0;
+      return 7 + Math.min(degree, 10) * 0.9;
+    }
+
+    function draw() {
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      ctx.clearRect(0, 0, w, h);
+
+      const idx = new Map(state.nodes.map(n => [n.id, n]));
+
+      for (const edge of state.edges) {
+        const a = idx.get(edge.source_document_id);
+        const b = edge.target_document_id != null ? idx.get(edge.target_document_id) : null;
+        if (!a) continue;
+
+        const p1 = worldToScreen(a.x || 0, a.y || 0);
+        const p2 = b ? worldToScreen(b.x || 0, b.y || 0) : worldToScreen((a.x || 0) + 40, (a.y || 0) - 40);
+
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.strokeStyle = edge.target_document_id == null ? "rgba(178,58,72,0.6)" : "rgba(40,52,68,0.22)";
+        ctx.lineWidth = edge.target_document_id == null ? 1.5 : 1;
+        ctx.stroke();
+      }
+
+      for (const node of state.nodes) {
+        const p = worldToScreen(node.x || 0, node.y || 0);
+        const r = nodeRadius(node);
+        const selected = state.selectedId === node.id;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = selected ? "#e29578" : "#006d77";
+        ctx.fill();
+
+        if (selected) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r + 4, 0, Math.PI * 2);
+          ctx.strokeStyle = "rgba(226,149,120,0.5)";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+
+        ctx.fillStyle = "#1d1b18";
+        ctx.font = "12px Avenir Next, Segoe UI, sans-serif";
+        ctx.fillText(node.title, p.x + r + 4, p.y + 4);
+      }
+    }
+
+    async function fetchGraph() {
+      const res = await fetch("/api/graph");
+      if (!res.ok) throw new Error("Failed to fetch graph");
+      const data = await res.json();
+
+      const degree = new Map();
+      for (const node of data.nodes) degree.set(node.id, 0);
+      for (const edge of data.edges) {
+        degree.set(edge.source_document_id, (degree.get(edge.source_document_id) || 0) + 1);
+        if (edge.target_document_id != null) {
+          degree.set(edge.target_document_id, (degree.get(edge.target_document_id) || 0) + 1);
+        }
+      }
+
+      state.nodes = data.nodes.map(n => ({ ...n, degree: degree.get(n.id) || 0 }));
+      state.edges = data.edges;
+      state.metrics = data.metrics;
+      runForceLayout();
+      renderMetrics();
+      renderSearchResults(state.nodes.slice(0, 25));
+      if (state.nodes.length) {
+        const cx = canvas.clientWidth / 2;
+        const cy = canvas.clientHeight / 2;
+        state.transform = { x: cx, y: cy, scale: 1 };
+      }
+      draw();
+    }
+
+    function renderMetrics() {
+      const el = document.getElementById("metrics");
+      if (!state.metrics) {
+        el.innerHTML = "";
+        return;
+      }
+      el.innerHTML = `
+        <div class="metric"><div class="k">Nodes</div><div class="v">${state.metrics.node_count}</div></div>
+        <div class="metric"><div class="k">Edges</div><div class="v">${state.metrics.edge_count}</div></div>
+        <div class="metric"><div class="k">Unresolved</div><div class="v ${state.metrics.unresolved_edge_count ? "danger" : ""}">${state.metrics.unresolved_edge_count}</div></div>
+        <div class="metric"><div class="k">Orphans</div><div class="v">${state.metrics.orphan_node_count}</div></div>
+      `;
+    }
+
+    async function importFiles() {
+      const input = document.getElementById("file-input");
+      const status = document.getElementById("import-status");
+      const diag = document.getElementById("diag");
+      const files = Array.from(input.files || []);
+      if (!files.length) {
+        status.textContent = "Choose at least one markdown file.";
+        return;
+      }
+
+      const payload = { files: [] };
+      for (const file of files) {
+        const raw = await file.text();
+        payload.files.push({ path: file.webkitRelativePath || file.name, raw_markdown: raw });
+      }
+
+      status.textContent = "Importing...";
+      const res = await fetch("/api/import/markdown", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        status.textContent = "Import failed.";
+        return;
+      }
+
+      const data = await res.json();
+      status.textContent = `Imported ${data.imported_document_count} docs, parsed ${data.parsed_link_count} links.`;
+      diag.textContent = data.unresolved_link_count > 0
+        ? `Unresolved links: ${data.unresolved_link_count}`
+        : "All links resolved.";
+
+      await fetchGraph();
+    }
+
+    async function selectNode(nodeId) {
+      state.selectedId = nodeId;
+      draw();
+      const meta = document.getElementById("selected-meta");
+      const preview = document.getElementById("note-preview");
+      const node = state.nodes.find(n => n.id === nodeId);
+      if (!node) {
+        meta.textContent = "No node selected.";
+        preview.textContent = "Select a node to preview markdown.";
+        return;
+      }
+
+      const res = await fetch(`/api/documents/${nodeId}`);
+      if (!res.ok) {
+        meta.textContent = `${node.title} (${node.path})`;
+        preview.textContent = "Failed to load document.";
+        return;
+      }
+
+      const doc = await res.json();
+      meta.textContent = `${doc.title} (${doc.path})`;
+      preview.textContent = doc.raw_markdown || "(empty)";
+    }
+
+    async function performSearch() {
+      const q = document.getElementById("search").value.trim();
+      if (!q) {
+        renderSearchResults(state.nodes.slice(0, 25));
+        return;
+      }
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=30`);
+      if (!res.ok) return;
+      const data = await res.json();
+      renderSearchResults(data.results);
+    }
+
+    function renderSearchResults(rows) {
+      const el = document.getElementById("search-results");
+      if (!rows.length) {
+        el.innerHTML = "<div style='padding:10px;color:#6b665d;'>No matches.</div>";
+        return;
+      }
+      el.innerHTML = "";
+      for (const row of rows) {
+        const btn = document.createElement("button");
+        btn.textContent = `${row.title} - ${row.path}`;
+        btn.addEventListener("click", () => {
+          selectNode(row.id);
+          const node = state.nodes.find(n => n.id === row.id);
+          if (node) {
+            state.transform.x = canvas.clientWidth / 2 - node.x * state.transform.scale;
+            state.transform.y = canvas.clientHeight / 2 - node.y * state.transform.scale;
+          }
+          draw();
+        });
+        el.appendChild(btn);
+      }
+    }
+
+    function wireCanvasInteraction() {
+      let dragging = false;
+      let dragNodeId = null;
+      let lastX = 0;
+      let lastY = 0;
+
+      canvas.addEventListener("mousedown", (evt) => {
+        const rect = canvas.getBoundingClientRect();
+        const sx = evt.clientX - rect.left;
+        const sy = evt.clientY - rect.top;
+        const world = screenToWorld(sx, sy);
+
+        dragNodeId = null;
+        for (const node of state.nodes) {
+          const dx = world.x - node.x;
+          const dy = world.y - node.y;
+          if (Math.sqrt(dx * dx + dy * dy) <= nodeRadius(node)) {
+            dragNodeId = node.id;
+            break;
+          }
+        }
+
+        dragging = true;
+        lastX = sx;
+        lastY = sy;
+      });
+
+      window.addEventListener("mousemove", (evt) => {
+        if (!dragging) return;
+        const rect = canvas.getBoundingClientRect();
+        const sx = evt.clientX - rect.left;
+        const sy = evt.clientY - rect.top;
+        const dx = sx - lastX;
+        const dy = sy - lastY;
+
+        if (dragNodeId != null) {
+          const node = state.nodes.find(n => n.id === dragNodeId);
+          if (node) {
+            node.x += dx / state.transform.scale;
+            node.y += dy / state.transform.scale;
+          }
+        } else {
+          state.transform.x += dx;
+          state.transform.y += dy;
+        }
+
+        lastX = sx;
+        lastY = sy;
+        draw();
+      });
+
+      window.addEventListener("mouseup", async (evt) => {
+        if (!dragging) return;
+        dragging = false;
+
+        const rect = canvas.getBoundingClientRect();
+        const sx = evt.clientX - rect.left;
+        const sy = evt.clientY - rect.top;
+
+        if (dragNodeId == null) {
+          const world = screenToWorld(sx, sy);
+          for (const node of state.nodes) {
+            const dx = world.x - node.x;
+            const dy = world.y - node.y;
+            if (Math.sqrt(dx * dx + dy * dy) <= nodeRadius(node)) {
+              await selectNode(node.id);
+              break;
+            }
+          }
+        }
+
+        dragNodeId = null;
+      });
+
+      canvas.addEventListener("wheel", (evt) => {
+        evt.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const sx = evt.clientX - rect.left;
+        const sy = evt.clientY - rect.top;
+        const worldBefore = screenToWorld(sx, sy);
+
+        const factor = evt.deltaY < 0 ? 1.08 : 0.92;
+        state.transform.scale = Math.max(0.2, Math.min(4, state.transform.scale * factor));
+
+        const screenAfter = worldToScreen(worldBefore.x, worldBefore.y);
+        state.transform.x += sx - screenAfter.x;
+        state.transform.y += sy - screenAfter.y;
+        draw();
+      }, { passive: false });
+    }
+
+    function wireUI() {
+      document.getElementById("import-btn").addEventListener("click", () => {
+        importFiles().catch(err => {
+          document.getElementById("import-status").textContent = "Import failed.";
+          console.error(err);
+        });
+      });
+
+      document.getElementById("refresh-btn").addEventListener("click", () => {
+        fetchGraph().catch(console.error);
+      });
+
+      document.getElementById("search").addEventListener("input", () => {
+        performSearch().catch(console.error);
+      });
+    }
+
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+    wireCanvasInteraction();
+    wireUI();
+    fetchGraph().catch(console.error);
+  </script>
+</body>
+</html>

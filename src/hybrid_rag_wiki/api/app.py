@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from hybrid_rag_wiki.api.schemas import (
     DocumentResponse,
@@ -16,10 +20,16 @@ from hybrid_rag_wiki.ingestion import InMemoryIngestionRepository, IngestionInpu
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Hybrid RAG Wiki API", version="0.1.0")
+    web_dir = Path(__file__).resolve().parents[1] / "web"
 
     repo = InMemoryIngestionRepository()
     pipeline = MarkdownIngestionPipeline(repository=repo)
     graph_service = GraphQueryService(repository=repo)
+    app.mount("/web", StaticFiles(directory=str(web_dir)), name="web")
+
+    @app.get("/")
+    def home() -> FileResponse:
+        return FileResponse(web_dir / "index.html")
 
     @app.post("/api/import/markdown", response_model=ImportResponse)
     def import_markdown(payload: ImportRequest) -> ImportResponse:
